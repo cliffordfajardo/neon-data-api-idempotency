@@ -1,0 +1,30 @@
+1) POST /notes, server-generated id
+  attempt 1: server committed, response lost -> client sees TimeoutError
+  attempt 2 (retry): HTTP 201 
+  result: rows with this body = 2 (expected 1) -> DUPLICATE
+
+2) POST /notes, client-generated id + Prefer: resolution=merge-duplicates (workaround)
+  attempt 1: server committed, response lost -> client sees TimeoutError
+  attempt 2 (retry): HTTP 200 
+  result: rows with this id = 1 (expected 1) -> OK, one logical write
+
+3) POST /events_log, append-only, same upsert header
+  attempt 1: server committed, response lost -> client sees TimeoutError
+  attempt 2 (retry): HTTP 201 
+  result: 'shared' events = 2 (expected 1) -> DUPLICATE
+
+4) POST /rpc/like_note, RPC that increments a counter and appends a log row
+  attempt 1: server committed, response lost -> client sees TimeoutError
+  attempt 2 (retry): HTTP 200 2
+  result: notes.likes = 2 (expected 1) -> DUPLICATE
+
+  result: 'liked' events = 2 (expected 1) -> DUPLICATE
+
+5) POST /rpc/like_note_once + Idempotency-Key, hand-written receipt table (workaround)
+  attempt 1: server committed, response lost -> client sees TimeoutError
+  attempt 2 (retry): HTTP 200 {"likes": 1}
+  result: notes.likes = 1 (expected 1) -> OK, one logical write
+
+  same key, different body: HTTP 422 {"code":"PT422","details":null,"hint":null,"message":"Idempotency-Key reused with a different request"}
+
+4 of 6 checks produced duplicates after a single retry (cases 1, 3, 4).
